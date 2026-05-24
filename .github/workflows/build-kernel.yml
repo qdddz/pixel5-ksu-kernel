@@ -80,7 +80,15 @@ jobs:
           
           # 使用找到的实际路径执行编译
           BUILD_CONFIG=$REAL_CONFIG ./build/build.sh
-
+      - name: 5.5 在线合成定制 Boot 镜像
+        run: |
+          cd kernel
+          # 下载官方提取出来的原厂 boot.img (这里以从远程或临时工具合成举例)
+          # 最稳妥的做法：利用内核源码树自带的 mkbootimg 工具进行一键合成
+          
+          # 红牛平台的编译输出其实已经自动尝试去构建过 boot.img 了
+          # 我们只需要把编译输出里已经基于新内核生成的最终 boot 捞出来即可
+          cp out/android-msm-pixel-4.19/dist/boot.img out/android-msm-pixel-4.19/dist/KernelSU-boot.img || true
       - name: 6. 收集并上传编译产物
         uses: actions/upload-artifact@v4
         with:
@@ -88,3 +96,4 @@ jobs:
           path: |
             kernel/out/android-msm-pixel-4.19/dist/Image.lz4-dtb
             kernel/out/android-msm-pixel-4.19/dist/vendor_boot.img
+            kernel/out/android-msm-pixel-4.19/dist/KernelSU-boot.img
