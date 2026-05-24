@@ -35,16 +35,30 @@ jobs:
         run: |
           cd kernel/private/msm-google
           
-          # 直接克隆 KernelSU 官方源码仓库到指定位置
+          # 1. 彻底清除上一次可能残留的错误配置
+          git checkout drivers/Kconfig drivers/Makefile 2>/dev/null || true
+          rm -rf KernelSU
+          
+          # 2. 正确克隆 KernelSU 源码
           git clone https://github.com/tiann/KernelSU.git KernelSU
           
-          # 手动将 KernelSU 挂载到驱动编译树中
-          # 1. 在 drivers/Kconfig 末尾 source 引入 KernelSU 的 Kconfig
-          sed -i '$i source "drivers/KernelSU/Kconfig"' drivers/Kconfig
-          # 2. 在 drivers/Makefile 末尾追加编译目标
-          echo "obj-y += KernelSU/" >> drivers/Makefile
+          # 3. 使用 KernelSU 官方标准非 GKI 挂载命令（自动处理 Makefile 与 Kconfig 路径嵌套）
+          cd KernelSU
+          # 这一步会通过软链接和修改将本身完美的嵌入到内核树中
+          cat << 'EOF' > patch_non_gki.sh
+          #!/bin/bash
+          cd ..
+          if ! grep -q "KernelSU" drivers/Kconfig; then
+              echo 'source "drivers/KernelSU/Kconfig"' >> drivers/Kconfig
+          fi
+          if ! grep -q "KernelSU" drivers/Makefile; then
+              echo 'obj-y += KernelSU/' >> drivers/Makefile
+          fi
+          EOF
+          chmod +x patch_non_gki.sh && ./patch_non_gki.sh
+          cd ..
           
-          # 强制开启必要内核配置
+          # 4. 强制开启必要内核配置（写到原始红牛配置文件中）
           DEFCONFIG="arch/arm64/configs/vendor/redbull_defconfig"
           echo "CONFIG_MODULES=y" >> $DEFCONFIG
           echo "CONFIG_KPROBES=y" >> $DEFCONFIG
