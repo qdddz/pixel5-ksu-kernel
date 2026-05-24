@@ -35,30 +35,25 @@ jobs:
         run: |
           cd kernel/private/msm-google
           
-          # 1. 彻底清除上一次可能残留的错误配置
+          # 1. 彻底恢复被污染的顶层 Kconfig 和 Makefile
           git checkout drivers/Kconfig drivers/Makefile 2>/dev/null || true
-          rm -rf KernelSU
+          rm -rf drivers/KernelSU KernelSU
           
-          # 2. 正确克隆 KernelSU 源码
+          # 2. 克隆 KernelSU 源码
           git clone https://github.com/tiann/KernelSU.git KernelSU
           
-          # 3. 使用 KernelSU 官方标准非 GKI 挂载命令（自动处理 Makefile 与 Kconfig 路径嵌套）
-          cd KernelSU
-          # 这一步会通过软链接和修改将本身完美的嵌入到内核树中
-          cat << 'EOF' > patch_non_gki.sh
-          #!/bin/bash
-          cd ..
-          if ! grep -q "KernelSU" drivers/Kconfig; then
-              echo 'source "drivers/KernelSU/Kconfig"' >> drivers/Kconfig
-          fi
-          if ! grep -q "KernelSU" drivers/Makefile; then
-              echo 'obj-y += KernelSU/' >> drivers/Makefile
-          fi
-          EOF
-          chmod +x patch_non_gki.sh && ./patch_non_gki.sh
-          cd ..
+          # 3. 曲线救国：将 KernelSU 源码整个软链接到旧内核最稳定的 drivers/char/ 目录下
+          ln -sf $(pwd)/KernelSU/kernel $(pwd)/drivers/char/KernelSU
           
-          # 4. 强制开启必要内核配置（写到原始红牛配置文件中）
+          # 4. 将 KernelSU 注入到 drivers/char/ 的配置中（这里在任何内核编译架构下都绝对支持相对路径）
+          if ! grep -q "KernelSU" drivers/char/Kconfig; then
+              sed -i '/endmenu/i source "drivers/char/KernelSU/Kconfig"' drivers/char/Kconfig
+          fi
+          if ! grep -q "KernelSU" drivers/char/Makefile; then
+              echo "obj-y += KernelSU/" >> drivers/char/Makefile
+          fi
+          
+          # 5. 强制开启必要内核配置（写到原始红牛配置文件中）
           DEFCONFIG="arch/arm64/configs/vendor/redbull_defconfig"
           echo "CONFIG_MODULES=y" >> $DEFCONFIG
           echo "CONFIG_KPROBES=y" >> $DEFCONFIG
