@@ -34,7 +34,15 @@ jobs:
       - name: 4. 集成 KernelSU 驱动
         run: |
           cd kernel/private/msm-google
-          curl -LSs "https://kernelsu.org/install.sh" | bash -
+          
+          # 直接克隆 KernelSU 官方源码仓库到指定位置
+          git clone https://github.com/tiann/KernelSU.git KernelSU
+          
+          # 手动将 KernelSU 挂载到驱动编译树中
+          # 1. 在 drivers/Kconfig 末尾 source 引入 KernelSU 的 Kconfig
+          sed -i '$i source "drivers/KernelSU/Kconfig"' drivers/Kconfig
+          # 2. 在 drivers/Makefile 末尾追加编译目标
+          echo "obj-y += KernelSU/" >> drivers/Makefile
           
           # 强制开启必要内核配置
           DEFCONFIG="arch/arm64/configs/vendor/redbull_defconfig"
