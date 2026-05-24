@@ -55,8 +55,22 @@ jobs:
         run: |
           cd kernel
           export HOME=/home/runner
-          # 使用红牛平台專用的构建配置
-          BUILD_CONFIG=private/msm-google/build.config.redbull.aarch64 ./build/build.sh
+          
+          # 自动寻找 redbull 的编译配置文件路径
+          echo "=== 正在查找红牛平台的配置文件 ==="
+          REAL_CONFIG=$(find . -name "build.config.redbull*" | head -n 1 | sed 's|^\./||')
+          
+          if [ -z "$REAL_CONFIG" ]; then
+            echo "❌ 错误：未找到任何 build.config.redbull 配置文件！"
+            echo "当前目录结构如下："
+            find . -maxdepth 3 -name "build.config*"
+            exit 1
+          fi
+          
+          echo "🎯 成功找到配置文件，实际路径为: $REAL_CONFIG"
+          
+          # 使用找到的实际路径执行编译
+          BUILD_CONFIG=$REAL_CONFIG ./build/build.sh
 
       - name: 6. 收集并上传编译产物
         uses: actions/upload-artifact@v4
