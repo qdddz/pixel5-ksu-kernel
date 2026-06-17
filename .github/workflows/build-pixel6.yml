@@ -11,6 +11,10 @@ jobs:
         run: |
           sudo docker image prune --all --force
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          
+          # 🚨 修复 Text file busy：先关闭系统可能在用的 swap，并改用独立的自定义文件名
+          sudo swapoff -a || true
+          sudo rm -f /swapfile_gki || true
           sudo fallocate -l 16G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
