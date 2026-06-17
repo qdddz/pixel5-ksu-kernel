@@ -11,7 +11,6 @@ jobs:
         run: |
           sudo docker image prune --all --force
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          # 串行跑两次编译对虚拟内存消耗大，直接分配 16GB Swap 防御 OOM
           sudo fallocate -l 16G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
@@ -37,8 +36,9 @@ jobs:
 
       - name: 4. 自动化注入 KernelSU (GKI 模式)
         run: |
-          cd kernel/private/gs-google
-          # 挂载 KernelSU 核心钩子（全局只需执行一次）
+          cd kernel
+          # GKI 核心内核源码位于 common 目录下，KernelSU 必须注入到这里
+          cd common
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
 
       - name: 5. 第一轮：编译 userdebug 版本
@@ -47,18 +47,26 @@ jobs:
           export HOME=/home/runner
           export LTO=thin
           
-          # 1. 动态寻找并配置当前的 defconfig
-          DEFCONFIG=$(find private/gs-google/arch/arm64/configs -name "slider_defconfig" -o -name "raviole_defconfig" | head -n 1)
+          # 1. 动态寻找 GKI 的核心 defconfig
+          DEFCONFIG=$(find . -name "gki_defconfig" | head -n 1)
           echo "🎯 Userdebug 目标配置: $DEFCONFIG"
-          echo "CONFIG_KPROBES=y" >> $DEFCONFIG
-          echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG
-          echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
+          
+          # 防御性安全检查
+          if [ -z "$DEFCONFIG" ]; then
+            echo "❌ 错误：未在源码树中找到 gki_defconfig 文件！"
+            exit 1
+          fi
+          
+          # 注入 KernelSU 必需的 Kprobes 依赖（变量务必用双引号包裹）
+          echo "CONFIG_KPROBES=y" >> "$DEFCONFIG"
+          echo "CONFIG_HAVE_KPROBES=y" >> "$DEFCONFIG"
+          echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG"
           
           # 2. 执行编译
           REAL_CONFIG=$(find . -name "build.config.raviole" | head -n 1 | sed 's|^\./||')
           BUILD_CONFIG=$REAL_CONFIG ./build/build.sh
           
-          # 3. 捞出产物并重命名归档，防止被下一轮清理覆盖
+          # 3. 捞出产物并重命名归档
           mkdir -p ../out_artifacts/userdebug
           cp $(find out/ -name "boot.img" | head -n 1) ../out_artifacts/userdebug/boot-userdebug.img || true
           cp $(find out/ -name "vendor_boot.img" | head -n 1) ../out_artifacts/userdebug/vendor_boot-userdebug.img || true
@@ -70,24 +78,29 @@ jobs:
           export HOME=/home/runner
           export LTO=thin
           
-          # 1. 强制强理上一轮的输出目录，释放磁盘空间并防止符号表污染
+          # 1. 清理上一轮的输出目录，释放磁盘空间
           echo "🧹 正在清理上一轮的构建缓存..."
           rm -rf out
           
-          # 2. 还原被修改的 defconfig（利用 git 恢复子仓库里的文件）
-          DEFCONFIG=$(find private/gs-google/arch/arm64/configs -name "slider_defconfig" -o -name "raviole_defconfig" | head -n 1)
-          SUB_REPO_PATH=${DEFCONFIG#private/gs-google/}
-          git -C private/gs-google checkout "$SUB_REPO_PATH"
+          # 2. 还原被修改的核心 defconfig（对 common 这个子仓库进行 checkout 重置）
+          git -C common checkout arch/arm64/configs/gki_defconfig 2>/dev/null || true
           
-          # 3. 重新注入 KernelSU 并剥离调试信息 (user 模式)
+          # 3. 重新获取并注入配置
+          DEFCONFIG=$(find . -name "gki_defconfig" | head -n 1)
           echo "🎯 User 目标配置: $DEFCONFIG"
-          echo "CONFIG_KPROBES=y" >> $DEFCONFIG
-          echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG
-          echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
           
-          # 关掉内核调试，精简 user 构建体积
-          sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/g' $DEFCONFIG
-          echo "CONFIG_DEBUG_KERNEL=n" >> $DEFCONFIG
+          if [ -z "$DEFCONFIG" ]; then
+            echo "❌ 错误：未在源码树中找到 gki_defconfig 文件！"
+            exit 1
+          fi
+          
+          echo "CONFIG_KPROBES=y" >> "$DEFCONFIG"
+          echo "CONFIG_HAVE_KPROBES=y" >> "$DEFCONFIG"
+          echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG"
+          
+          # 剥离 user 版本的内核调试信息
+          sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/g' "$DEFCONFIG"
+          echo "CONFIG_DEBUG_KERNEL=n" >> "$DEFCONFIG"
           
           # 4. 执行第二轮编译
           REAL_CONFIG=$(find . -name "build.config.raviole" | head -n 1 | sed 's|^\./||')
